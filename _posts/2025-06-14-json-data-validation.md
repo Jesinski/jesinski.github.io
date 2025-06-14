@@ -71,7 +71,7 @@ Suppose we are developing a recipe modeler, and our JSON data looks like this:
 
 Our business logic requires to validate the recipe id, ingredients, steps order, tags and so on.
 
-Each item may have more that one rule associated with it, for example, the recipe id must not be a empty string or undefined, it needs to be unique, it have a max length and it should have only alphanumeric characters.
+Each item may have more than one rule associated with it, for example, the recipe id must not be a empty string or undefined, it needs to be unique, it have a max length and it should have only alphanumeric characters.
 
 Initially, we could have a central place to validate each recipe, which makes everything accessible on one file:
 
@@ -115,11 +115,13 @@ function validateTags(recipe: Recipe) {
 }
 ```
 
-However, to check every property and it's rules starts to gobble up our validation. The sheer amount of conditionals necessary to check everything can become a problem for readability, and soon enough we lose the ability to understand which business rules we follow and the flow it should have - do we need to check the ID uniqueness if we don't even have an ID? Should we report the max length and alphanumeric together?
+However, to check every property and it's rules, the validation file becomes a mess.
+
+The sheer amount of conditionals necessary to check everything can become a problem for readability, and soon enough we lose the ability to understand which business rules we follow and the flow it should have - do we need to check the ID uniqueness if we don't even have an ID? Should we report the max length and alphanumeric together?
 
 Controlling validation dependency (the flow mentioned earlier) is also troublesome. Moving conditionals can have side-effects which are not expected.
 
-A small example like the one above is rather easy - and preferably - should be done as shown, but our recipe model is way more complex.
+A small example like the one above is rather easy - and preferably - it should be done as shown, but our recipe model is way more complex.
 
 Besides checking the recipe id, things start to become tricky when we zoom-out: does all the tags exists? Is the steps inputs only using either raw ingredients and/or outputs (id) from previous steps? Does the steps are well defined? What about the ingredients? Does it have technical limitations as the recipe id?
 
@@ -129,12 +131,15 @@ With the odd feeling of a central place no longer being suitable, I did what the
 
 To enable highly customizable validations, where flow is easily defined, and business logic is clear to the developer, I used two design patterns:
 
-1. Chain of Responsibility:
+**Chain of Responsibility (Chains)**
 
-   - Represents a sequence of dependent validations, where one failure prevents further validations to execute.
+- Represents a sequence of dependent validations, where one failure prevents further validations to execute.
 
-2. Composite:
-   - Is a group of validations, _composed_ of other Composites or Chains, where all validations will be executed - even if one fails, and report the aggregate result.
+**Composite (Composites)**
+
+- Is a group of validations, _composed_ of other Composites or Chains, where all validations will be executed - even if one fails, and report the aggregated result.
+
+---
 
 For our recipe validator, we might want to create the validations these validations:
 
@@ -157,7 +162,7 @@ With dependency represented below:
 
 The implementation of such scenario can easily become a bunch of ifs/elses that obfuscate the business logic and became unmaintainable in no time.
 
-Using the design patterns, I created two main base classes and two interfaces:
+Following the design patterns above, I created two main base classes and two interfaces:
 
 ```ts
 export interface ValidationResult {
@@ -214,9 +219,9 @@ export class CompositeValidator implements Validator {
 }
 ```
 
-By extending the base classes we can create a group of validations and a sequence of validations, each highly specialized and readable - with some tradeoffs elicited at the end of this article.
+By extending these base classes we can create a group of validations and a sequence of validations, each highly specialized and readable - with some tradeoffs elicited at the end of this article.
 
-By refactoring our previous implementation:
+Let's refactor our previous implementation with the new approach:
 
 1. Create a Composite Validator for the recipe (RecipeValidator)
 1. Create a RecipeId Chain (RecipeIdChain) with the sequenced Chainable Validators (RecipeIdDefinedValidation, RecipeIdUniquenessValidation, RecipeIdMaxLengthValidation and RecipeIdAllowedCharsValidation)
@@ -314,23 +319,27 @@ class RecipeIdMustBeDefined extends ValidationResult {
 
 #### Files
 
-From the get-go the amount of files - if we follow one class per file - is the first tradeoff. At the same time that having one huge file is not good, having one huge folder of smaller files aren't good either. However, when I want to maintain a validation, preferably I want to read and look only the code related to what I'm maintaining, thus smaller files seems to be the winning options here.
+From the get-go the amount of files - if we follow one class per file - is the first tradeoff. At the same time that having one huge file is not good, having one huge folder of smaller files aren't good either.
+
+However, when I want to maintain a validation, preferably I expect to read and look only the code related to what I'm maintaining, thus smaller files seems to be the winning options here.
 
 #### Dependencies
 
-Some validations might need to fetch some data from somewhere else or need extra information from the system. We could solve add those dependencies on the constructor, however, if the need is only deep into the flow, we start to have prop drilling problems. I rather create external services, which are configured prior to the validation execution that can be consumed on-demand by the validations that requires the data that the service holds. The drawback here is the necessity to know which services do we need in order to fully validate the model.
+Some validations might need to fetch some data from somewhere else or need extra information from the system. We could solve add those dependencies on the constructor, however, if the need is only deep into the flow, we start to have prop drilling problems.
+
+I rather create external services, which are configured prior to the validation execution that can be consumed on-demand by the validations that requires the data that the service holds. The drawback here is the necessity to know which services do we need in order to fully validate the model.
 
 ## Benefits
 
-Besides having clear business rules and readable validations, testing becomes very easy as we can instantiate a single validation and test it alone. Also, full blown integration tests against the root validator can safely report how the validations will report a given payload.
+Besides having clear business rules and readable validations, testing becomes very easy as we can instantiate a single validation and test it alone. Also, full blown integration tests against the root validator can safely report what's the output of a given payload.
 
 ## Next steps
 
-The proof-of-concept does not use Generics, but by adding it to the Validator (and the classes that implements it) we can define the payload type, make even more readable and helps with LSP.
+The proof-of-concept does not use Generics, but by adding it to the Validator interface (and the classes that implements it) we can define the payload type, make even more readable and helps with LSP.
 
 I feel this solution can be more simplified, one attempt of that is the "function based" validations, but more time is needed to evolve this idea.
 
-Finally, I was able to fully create the Mermaid diagram using Github Copilot, which indicates that a documentation flow can be created, making the business rules clear to other developers that do not actively develop the validations. The diagrams can be found on the Readmes of each test folder.
+Finally, I was able to fully create the Mermaid diagram using Github Copilot, which indicates that a documentation flow can be created, making the business rules clear to other developers that do not actively develop the validations. The diagrams can be found on the Readmes of each E2E test folders on the project repository.
 
 Source code: [github.com/Jesinski/json-data-validator](https://github.com/Jesinski/json-data-validator)
 
